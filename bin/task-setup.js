@@ -6,15 +6,22 @@ import { CONFIG_DIR, loadConfig } from '../lib/config.js';
 import { askText, askConfirm, askMultiSelect, closePrompts } from '../lib/prompt.js';
 import { shallowClone, getLatestSemverTag } from '../lib/git.js';
 import { hashPackageLock, ensureCache, symlinkNodeModules } from '../lib/cache.js';
-import { isInsideTmux, shellQuote, tmuxRenameAndRun } from '../lib/tmux.js';
+import { buildWindowName, isInsideTmux, shellQuote, tmuxRenameAndRun } from '../lib/tmux.js';
 import { buildClaudePrompt, launchClaude } from '../lib/claude.js';
 
 async function main() {
   const config = loadConfig();
 
-  let ticket = process.argv[2]?.trim();
-  if (!ticket) ticket = await askText('Ticket');
-  if (!ticket) throw new Error('A ticket identifier is required.');
+  let description = process.argv[2]?.trim();
+  if (!description) description = await askText('Task description');
+  if (!description) throw new Error('A task description is required.');
+
+  const launchClaudeConfirmed = await askConfirm('Launch Claude Code?');
+  let ticket;
+  if (launchClaudeConfirmed) {
+    ticket = await askText('Ticket number');
+    if (!ticket) throw new Error('A ticket number is required to launch Claude Code.');
+  }
 
   const selectedRepos = await askMultiSelect('Select repos:', config.repos);
   const isHotfix = await askConfirm('Hotfix?');
@@ -22,7 +29,8 @@ async function main() {
   // Done with interactive prompts; release stdin so git/npm output isn't held up.
   closePrompts();
 
-  const workDir = join(config.workDir, ticket);
+  const windowName = buildWindowName(description, ticket);
+  const workDir = join(config.workDir, windowName);
   mkdirSync(workDir, { recursive: true });
 
   const defaultClaudeMd = join(CONFIG_DIR, 'CLAUDE.md');
@@ -54,16 +62,14 @@ async function main() {
 
   console.log(`\nDone. Working directory: ${workDir}`);
 
-  const launchClaudeConfirmed = await askConfirm('Launch Claude Code?');
   const prompt = launchClaudeConfirmed
     ? buildClaudePrompt(config.claudePromptTemplate, ticket)
     : undefined;
 
   if (isInsideTmux()) {
-    const windowName = ticket.replace(/\s+/g, '-');
     let commandLine = `cd ${shellQuote(workDir)}`;
     if (launchClaudeConfirmed) {
-      commandLine += ` && claude${prompt ? ` ${shellQuote(prompt)}` : ''}`;
+      commandLine += ` && claude --permission-mode plan${prompt ? ` ${shellQuote(prompt)}` : ''}`;
     }
     tmuxRenameAndRun(windowName, commandLine);
   } else {
