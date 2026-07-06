@@ -6,6 +6,8 @@ import { loadConfig } from '../lib/config.js';
 import { askText, askConfirm, askMultiSelect, closePrompts } from '../lib/prompt.js';
 import { shallowClone, getLatestSemverTag } from '../lib/git.js';
 import { hashPackageLock, ensureCache, symlinkNodeModules } from '../lib/cache.js';
+import { isInsideTmux, shellQuote, tmuxRenameAndRun } from '../lib/tmux.js';
+import { buildClaudePrompt, launchClaude } from '../lib/claude.js';
 
 async function main() {
   const config = loadConfig();
@@ -15,7 +17,7 @@ async function main() {
   if (!ticket) throw new Error('A ticket identifier is required.');
 
   const selectedRepos = await askMultiSelect('Select repos:', config.repos);
-  const isHotfix = await askConfirm('\nHotfix?');
+  const isHotfix = await askConfirm('Hotfix?');
 
   // Done with interactive prompts; release stdin so git/npm output isn't held up.
   closePrompts();
@@ -46,6 +48,23 @@ async function main() {
   }
 
   console.log(`\nDone. Working directory: ${workDir}`);
+
+  const launchClaudeConfirmed = await askConfirm('Launch Claude Code?');
+  const prompt = launchClaudeConfirmed
+    ? buildClaudePrompt(config.claudePromptTemplate, ticket)
+    : undefined;
+
+  if (isInsideTmux()) {
+    const windowName = ticket.replace(/\s+/g, '-');
+    let commandLine = `cd ${shellQuote(workDir)}`;
+    if (launchClaudeConfirmed) {
+      commandLine += ` && claude${prompt ? ` ${shellQuote(prompt)}` : ''}`;
+    }
+    tmuxRenameAndRun(windowName, commandLine);
+  } else {
+    console.log('(not running inside tmux — skipping window rename/cd)');
+    if (launchClaudeConfirmed) launchClaude(workDir, prompt);
+  }
 }
 
 main().catch(err => {

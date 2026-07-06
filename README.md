@@ -7,7 +7,7 @@ CLI tool for bootstrapping a working directory per Jira ticket. Clones the relev
 ```bash
 git clone <this-repo> ~/projects/task-setup
 cd ~/projects/task-setup
-npm link
+npm install && npm link
 ```
 
 `task-setup` will be available globally via your nvm bin path.
@@ -41,6 +41,7 @@ Create `~/.config/task-setup/config.json`:
 |---|---|---|---|
 | `workDir` | No | `~/work/tasks` | Root directory where ticket subdirectories are created |
 | `hotfixTagPattern` | No | `v[0-9]+\.[0-9]+\.[0-9]+` | Regex pattern for matching semver release tags |
+| `claudePromptTemplate` | No | *(none)* | Prompt template passed to `claude` on launch; `{ticket}` is replaced with the ticket ID. If omitted, `claude` launches with no prompt argument |
 | `repos[].name` | Yes | — | Short name used as the cloned directory name |
 | `repos[].url` | Yes | — | Git remote URL |
 | `repos[].mainBranch` | No | `develop` | Branch to clone for normal (non-hotfix) tickets |
@@ -57,13 +58,15 @@ task-setup
 ### Interactive flow
 
 ```
-Select repos:
-  1) backend
-  2) frontend
-  3) admin-ui
-Select (e.g. 1,3 or all): 1,2
+◆  Select repos:
+│  ◻ backend
+│  ◻ frontend
+│  ◻ admin-ui
+└
 
-Hotfix? [y/N]: n
+◆  Hotfix?
+│  Yes / No
+└
 
 Cloning backend @ develop
 Cloning frontend @ develop
@@ -71,9 +74,30 @@ Cloning frontend @ develop
   → node_modules symlinked
 
 Done. Working directory: ~/work/tasks/TICK-123
+
+◆  Launch Claude Code?
+│  Yes / No
+└
 ```
 
+Repo selection is a checkbox list — use arrow keys and space to toggle, enter to confirm. Ctrl+C at any prompt cancels cleanly.
+
 For a hotfix, the tool resolves the highest semver tag matching `hotfixTagPattern` via `git ls-remote` (no full clone required) and checks out at that ref.
+
+## tmux integration
+
+When `task-setup` is run inside a tmux session (`$TMUX` is set), it will, after setup completes:
+
+1. Rename the current tmux window to the ticket ID.
+2. Send a `cd` into the new working directory to the active pane, so your shell ends up there.
+
+Both happen regardless of whether you choose to launch Claude Code. Outside tmux, this step is skipped with a one-line notice — there's no way for a child process to change its parent shell's directory without tmux's help.
+
+## Claude Code launch
+
+After setup, you're asked whether to launch Claude Code. If `claudePromptTemplate` is configured, `{ticket}` in the template is substituted with the ticket ID and passed to `claude` as its initial prompt. If no template is configured, `claude` launches with no prompt at all.
+
+Inside tmux, the launch is chained onto the same `cd` sent to the pane, so Claude starts already in the working directory. Outside tmux, `claude` is launched directly with its working directory set to the new folder (your invoking shell's own directory is unaffected).
 
 ## node_modules cache
 
