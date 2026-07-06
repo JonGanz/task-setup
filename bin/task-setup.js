@@ -1,84 +1,43 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync } from 'fs';
-import { join } from 'path';
+const [, , cmd, ...rest] = process.argv;
 
-import { CONFIG_DIR, loadConfig } from '../lib/config.js';
-import { askText, askConfirm, askMultiSelect, closePrompts } from '../lib/prompt.js';
-import { shallowClone, getLatestSemverTag } from '../lib/git.js';
-import { hashPackageLock, ensureCache, symlinkNodeModules } from '../lib/cache.js';
-import { buildWindowName, isInsideTmux, shellQuote, tmuxRenameAndRun } from '../lib/tmux.js';
-import { buildClaudePrompt, launchClaude } from '../lib/claude.js';
+const COMMANDS = {
+  new: () => import('../lib/commands/new.js').then(m => m.runNew),
+  run: () => import('../lib/commands/run.js').then(m => m.runRun),
+  switch: () => import('../lib/commands/switch.js').then(m => m.runSwitch),
+  status: () => import('../lib/commands/status.js').then(m => m.runStatus),
+  attach: () => import('../lib/commands/attach.js').then(m => m.runAttach),
+  stop: () => import('../lib/commands/stop.js').then(m => m.runStop),
+};
 
-async function main() {
-  const config = loadConfig();
+const COMMAND_DESCRIPTIONS = [
+  { cmd: 'new', label: 'new — bootstrap a new task\'s working directory' },
+  { cmd: 'run', label: 'run — start apps for a task' },
+  { cmd: 'switch', label: 'switch — stop the active task\'s apps, start another\'s' },
+  { cmd: 'status', label: 'status — list running apps and their liveness' },
+  { cmd: 'attach', label: 'attach — jump into a running app\'s window/REPL' },
+  { cmd: 'stop', label: 'stop — stop running apps' },
+];
 
-  let description = process.argv[2]?.trim();
-  if (!description) description = await askText('Task description');
-  if (!description) throw new Error('A task description is required.');
+async function dispatch() {
+  let command = cmd;
 
-  const launchClaudeConfirmed = await askConfirm('Launch Claude Code?');
-  let ticket;
-  if (launchClaudeConfirmed) {
-    ticket = await askText('Ticket number');
-    if (!ticket) throw new Error('A ticket number is required to launch Claude Code.');
+  if (command === undefined) {
+    const { askSelect } = await import('../lib/prompt.js');
+    const choice = await askSelect(
+      'Command:',
+      COMMAND_DESCRIPTIONS.map(d => ({ name: d.label, cmd: d.cmd }))
+    );
+    command = choice.cmd;
+  } else if (!(command in COMMANDS)) {
+    throw new Error(`Unknown command "${command}". Run "task-setup" with no arguments to pick one.\nAvailable: ${Object.keys(COMMANDS).join(', ')}`);
   }
 
-  const selectedRepos = await askMultiSelect('Select repos:', config.repos);
-  const isHotfix = await askConfirm('Hotfix?');
-
-  // Done with interactive prompts; release stdin so git/npm output isn't held up.
-  closePrompts();
-
-  const windowName = buildWindowName(description, ticket);
-  const workDir = join(config.workDir, windowName);
-  mkdirSync(workDir, { recursive: true });
-
-  const defaultClaudeMd = join(CONFIG_DIR, 'CLAUDE.md');
-  if (existsSync(defaultClaudeMd)) {
-    copyFileSync(defaultClaudeMd, join(workDir, 'CLAUDE.md'));
-  }
-
-  for (const repo of selectedRepos) {
-    let ref;
-    if (isHotfix) {
-      process.stdout.write(`\nResolving latest tag for ${repo.name}... `);
-      ref = getLatestSemverTag(repo.url, repo.hotfixTagPattern);
-      console.log(ref);
-    } else {
-      ref = repo.mainBranch;
-      console.log(`\nCloning ${repo.name} @ ${ref}`);
-    }
-
-    const repoDir = join(workDir, repo.name);
-    shallowClone(repo.url, ref, repoDir);
-
-    const lockFile = join(repoDir, 'package-lock.json');
-    if (existsSync(lockFile)) {
-      const hash = hashPackageLock(lockFile);
-      const cacheDir = ensureCache(hash, repoDir);
-      symlinkNodeModules(repoDir, cacheDir);
-    }
-  }
-
-  console.log(`\nDone. Working directory: ${workDir}`);
-
-  const prompt = launchClaudeConfirmed
-    ? buildClaudePrompt(config.claudePromptTemplate, ticket)
-    : undefined;
-
-  if (isInsideTmux()) {
-    let commandLine = `cd ${shellQuote(workDir)}`;
-    if (launchClaudeConfirmed) {
-      commandLine += ` && claude --permission-mode plan${prompt ? ` ${shellQuote(prompt)}` : ''}`;
-    }
-    tmuxRenameAndRun(windowName, commandLine);
-  } else {
-    console.log('(not running inside tmux — skipping window rename/cd)');
-    if (launchClaudeConfirmed) launchClaude(workDir, prompt);
-  }
+  const run = await COMMANDS[command]();
+  return run(rest);
 }
 
-main().catch(err => {
+dispatch().catch(err => {
   console.error(`\nError: ${err.message}`);
   process.exit(1);
 });
