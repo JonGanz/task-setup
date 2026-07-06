@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
-import { loadConfig } from '../lib/config.js';
+import { CONFIG_DIR, loadConfig } from '../lib/config.js';
 import { askText, askConfirm, askMultiSelect, closePrompts } from '../lib/prompt.js';
 import { shallowClone, getLatestSemverTag } from '../lib/git.js';
 import { hashPackageLock, ensureCache, symlinkNodeModules } from '../lib/cache.js';
@@ -24,6 +24,11 @@ async function main() {
 
   const workDir = join(config.workDir, ticket);
   mkdirSync(workDir, { recursive: true });
+
+  const defaultClaudeMd = join(CONFIG_DIR, 'CLAUDE.md');
+  if (existsSync(defaultClaudeMd)) {
+    copyFileSync(defaultClaudeMd, join(workDir, 'CLAUDE.md'));
+  }
 
   for (const repo of selectedRepos) {
     let ref;

@@ -35,6 +35,10 @@ Create `~/.config/task-setup/config.json`:
 }
 ```
 
+### Default CLAUDE.md
+
+If `~/.config/task-setup/CLAUDE.md` exists, it's copied to the root of each new working directory (e.g. `~/work/tasks/TICK-123/CLAUDE.md`). Useful for seeding ticket-scoped instructions that apply regardless of which repos are checked out. Omit the file entirely to skip this — nothing is created if it's absent.
+
 ### Config fields
 
 | Field | Required | Default | Description |
