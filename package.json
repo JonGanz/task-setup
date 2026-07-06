@@ -1,0 +1,11 @@
+{
+  "name": "task-setup",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "task-setup": "./bin/task-setup.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
