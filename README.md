@@ -137,13 +137,13 @@ task-setup new
 ### Interactive flow
 
 ```
-◆  Task description: add payment retries
+◆  Task description (optional): add payment retries
+
+◆  Ticket number (optional): PROJ-1234
 
 ◆  Launch Claude Code?
 │  Yes / No
 └
-
-◆  Ticket number: PROJ-1234
 
 ◆  Select repos:
 │  ◻ backend
@@ -169,22 +169,22 @@ For a hotfix, the tool resolves the highest semver tag matching `hotfixTagPatter
 
 ### Description, ticket, and window naming
 
-The task description is always collected first (via the CLI argument or an interactive prompt) and is kebab-cased to form the base of both the working directory name and the tmux window name — e.g. "add payment retries" → `add-payment-retries`.
+The task description (CLI argument or interactive prompt) and the ticket number are both optional, but at least one must be given — providing neither is an error. Whichever are present are kebab-cased/combined to form the base of both the working directory name and the tmux window name.
 
-The ticket number is only asked for if you choose to launch Claude Code, since it's otherwise unused. When a ticket is given, its segment after the first hyphen is prepended to the window name — e.g. description "add payment retries" + ticket `PROJ-1234` → `1234-add-payment-retries`. Without a ticket, the window name is just the kebab-cased description.
+The ticket is now always asked for, regardless of whether you launch Claude Code — it's used for window naming either way. When a ticket is given, its segment after the first hyphen is prepended to the window name — e.g. description "add payment retries" + ticket `PROJ-1234` → `1234-add-payment-retries`. Without a ticket, the window name is just the kebab-cased description; without a description, it's just the ticket's number segment.
 
 ### tmux integration
 
 When `task-setup new` is run inside a tmux session (`$TMUX` is set), it will, after setup completes:
 
-1. Rename the current tmux window to the name described above.
-2. Send a `cd` into the new working directory to the active pane, so your shell ends up there.
+1. Rename the tmux window it was started in to the name described above.
+2. Send a `cd` into the new working directory to the pane it was started in, so your shell ends up there.
 
-Both happen regardless of whether you choose to launch Claude Code. Outside tmux, this step is skipped with a one-line notice — there's no way for a child process to change its parent shell's directory without tmux's help.
+Both happen regardless of whether you choose to launch Claude Code, and regardless of which tmux window you're currently looking at — cloning can take a while, so the tool remembers the pane it was launched from (via `$TMUX_PANE`) and targets that pane explicitly, rather than relying on tmux's default "current window" target, which would otherwise follow you to wherever you've navigated in the meantime. Outside tmux, this step is skipped with a one-line notice — there's no way for a child process to change its parent shell's directory without tmux's help.
 
 ### Claude Code launch
 
-You're asked whether to launch Claude Code before repos are cloned; if you say yes, you're also asked for a ticket number at that point. If `claudePromptTemplate` is configured, `{ticket}` in the template is substituted with the ticket number and passed to `claude` as its initial prompt. If no template is configured, `claude` launches with no prompt at all. Either way, Claude always starts in plan mode (`--permission-mode plan`), so it won't make edits before you've reviewed and approved an approach.
+You're asked whether to launch Claude Code before repos are cloned. If `claudePromptTemplate` is configured, `{ticket}` in the template is substituted with the ticket number (or removed, if left blank) and passed to `claude` as its initial prompt. If no template is configured, `claude` launches with no prompt at all. Either way, Claude always starts in plan mode (`--permission-mode plan`), so it won't make edits before you've reviewed and approved an approach.
 
 Inside tmux, the launch is chained onto the same `cd` sent to the pane, so Claude starts already in the working directory. Outside tmux, `claude` is launched directly with its working directory set to the new folder (your invoking shell's own directory is unaffected).
 
