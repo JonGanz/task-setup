@@ -260,6 +260,16 @@ Because this is a real tmux pane rather than a piped log, MoleculerJS's `--repl`
 
 Note: the popup is itself a nested tmux client on the same server, so its prefix key is the same as your outer session's — a single prefix-`d` while the popup has focus detaches the popup (what you want), not your outer session.
 
+#### Binding `attach` to a key
+
+To jump into a running app from anywhere without leaving whatever's in your current pane, bind a key in `~/.tmux.conf` that opens `task-setup attach` in its own popup:
+
+```tmux
+bind-key -n M-a display-popup -E -w 90% -h 90% "TASK_SETUP_SKIP_POPUP=1 task-setup attach"
+```
+
+`TASK_SETUP_SKIP_POPUP=1` tells `attach` it's already running inside a popup (the one the keybinding just opened), so it attaches directly instead of opening a second, redundant popup inside that one.
+
 ### stop
 
 ```bash
