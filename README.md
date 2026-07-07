@@ -19,6 +19,7 @@ npm install && npm link
 | `task-setup new [description]` | Bootstrap a new task's working directory (clone repos, share `node_modules`) |
 | `task-setup run [task]` | Start apps for a task in the `task-run` tmux session |
 | `task-setup switch [task]` | Stop the active task's apps, then start another task's |
+| `task-setup open [task]` | `cd` into a task's directory in the current tmux window |
 | `task-setup status` | List running apps for the active task and their liveness |
 | `task-setup attach [repo[:profile]]` | Jump into a running app's tmux window/REPL |
 | `task-setup stop [repo[:profile]]` | Stop one running app, or everything for the active task |
@@ -202,6 +203,16 @@ Two repos with identical dependencies will share one install. The cache is safe 
 ```bash
 rm -rf ~/.cache/task-setup/node_modules/
 ```
+
+## Opening a task's directory
+
+```bash
+task-setup open
+# or name it directly:
+task-setup open 1234-add-payment-retries
+```
+
+Prompts with the list of task directories under `workDir` (unless a name is given directly), then renames the current tmux window to the task's directory name and `cd`s into it — same as the rename-and-`cd` `task-setup new` does after cloning, just without the cloning. It doesn't touch `task-run` state; it's purely for jumping back into a task you're already working on. Like `task-setup new`, it targets the pane the command was launched from (via `$TMUX_PANE`) rather than tmux's default "current" target, so it still lands correctly even if you've switched windows in the meantime. Outside tmux, there's no shell to rename/`cd` for, so it just prints the resolved path.
 
 ## Running apps for a task
 
