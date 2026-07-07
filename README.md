@@ -254,7 +254,7 @@ task-setup attach backend          # jumps straight in if only one profile is ru
 task-setup attach backend:staging  # disambiguates when multiple profiles are running
 ```
 
-If you're already inside tmux, this opens the window in a floating popup (`tmux display-popup`, requires tmux ≥ 3.2) rather than switching your client to the `task-run` session — your current session/window is never actually left. Detach from the popup the normal way (prefix-`d`) to close it and land back exactly where you were. Outside tmux, it attaches directly since there's no session to preserve.
+If you're already inside tmux, this opens the window in a floating popup (`tmux display-popup`, requires tmux ≥ 3.2) rather than switching your client to the `task-run` session — your current session/window is never actually left. The popup is titled `<task> — <repo>:<profile>`, so it's clear which task's app you're looking at even with several tasks' worth of muscle memory in play. Detach from the popup the normal way (prefix-`d`) to close it and land back exactly where you were. Outside tmux, it attaches directly since there's no session to preserve.
 
 Because this is a real tmux pane rather than a piped log, MoleculerJS's `--repl` works exactly as if you'd run the command yourself — arrow keys, tab-complete, and history all work. If the repo's profile isn't marked `repl: true` in config, you can still attach — you just get a note that it wasn't expected to be interactive.
 
@@ -265,10 +265,12 @@ Note: the popup is itself a nested tmux client on the same server, so its prefix
 To jump into a running app from anywhere without leaving whatever's in your current pane, bind a key in `~/.tmux.conf` that opens `task-setup attach` in its own popup:
 
 ```tmux
-bind-key -n M-a display-popup -E -w 90% -h 90% "TASK_SETUP_SKIP_POPUP=1 task-setup attach"
+bind-key -n M-a display-popup -E -w 90% -h 90% -T "#(task-setup active-task) — attach" "TASK_SETUP_SKIP_POPUP=1 task-setup attach"
 ```
 
 `TASK_SETUP_SKIP_POPUP=1` tells `attach` it's already running inside a popup (the one the keybinding just opened), so it attaches directly instead of opening a second, redundant popup inside that one.
+
+A popup's title is fixed at creation and can't be changed once it's open, so the `-T` flag uses tmux's `#(shell command)` format substitution to run `task-setup active-task` — a small hidden command that just prints the active task's directory name — before the popup appears. It's what lets the outer popup show the active task even though the specific `<repo>:<profile>` isn't known yet (that's still resolved by `attach`'s own picker, running inside the popup).
 
 ### stop
 

@@ -9,6 +9,7 @@ const COMMANDS = {
   status: () => import('../lib/commands/status.js').then(m => m.runStatus),
   attach: () => import('../lib/commands/attach.js').then(m => m.runAttach),
   stop: () => import('../lib/commands/stop.js').then(m => m.runStop),
+  'active-task': () => import('../lib/commands/active-task.js').then(m => m.runActiveTask),
 };
 
 const COMMAND_DESCRIPTIONS = [
