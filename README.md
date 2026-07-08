@@ -70,6 +70,14 @@ Create `~/.config/task-setup/config.json`:
 
 If `~/.config/task-setup/CLAUDE.md` exists, it's copied to the root of each new working directory (e.g. `~/work/tasks/checkout-revamp/CLAUDE.md`). Useful for seeding task-scoped instructions that apply regardless of which repos are checked out. Omit the file entirely to skip this — nothing is created if it's absent.
 
+### Local dev patches
+
+Drop `.patch`/`.diff` files into `~/.config/task-setup/patches/<repo-name>/` to have them applied automatically after that repo is cloned — handy for local-only changes you want every task to start with (pointing at a local service, extra debug logging, etc.) without committing them upstream.
+
+For each selected repo that has a non-empty `patches/<repo-name>` folder, `task-setup new` prompts with the list of patches (all pre-checked — uncheck any you don't want this time). Patches are applied via `git apply` right after the clone. A repo with no `patches/<repo-name>` folder isn't prompted at all.
+
+If a patch fails to apply (e.g. it no longer matches the branch), `task-setup new` prints a warning and continues setting up the rest of the task — a bad patch never blocks getting a working directory.
+
 ### Config fields
 
 | Field | Required | Default | Description |
