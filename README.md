@@ -17,6 +17,7 @@ npm install && npm link
 | Command | Purpose |
 |---|---|
 | `task-setup new [description]` | Bootstrap a new task's working directory (clone repos, share `node_modules`) |
+| `task-setup edit [task]` | Add or remove repos from an existing task's working directory |
 | `task-setup run [task]` | Start apps for a task in the `task-run` tmux session |
 | `task-setup switch [task]` | Stop the active task's apps, then start another task's |
 | `task-setup open [task]` | `cd` into a task's directory in the current tmux window |

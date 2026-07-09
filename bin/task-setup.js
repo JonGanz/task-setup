@@ -3,6 +3,7 @@ const [, , cmd, ...rest] = process.argv;
 
 const COMMANDS = {
   new: () => import('../lib/commands/new.js').then(m => m.runNew),
+  edit: () => import('../lib/commands/edit.js').then(m => m.runEdit),
   run: () => import('../lib/commands/run.js').then(m => m.runRun),
   switch: () => import('../lib/commands/switch.js').then(m => m.runSwitch),
   open: () => import('../lib/commands/open.js').then(m => m.runOpen),
@@ -15,6 +16,7 @@ const COMMANDS = {
 
 const COMMAND_DESCRIPTIONS = [
   { cmd: 'new', label: 'new — bootstrap a new task\'s working directory' },
+  { cmd: 'edit', label: 'edit — add or remove repos from an existing task' },
   { cmd: 'run', label: 'run — start apps for a task' },
   { cmd: 'switch', label: 'switch — stop the active task\'s apps, start another\'s' },
   { cmd: 'open', label: 'open — cd into a task\'s directory in the current window' },
