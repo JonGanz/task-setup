@@ -9,6 +9,7 @@ const COMMANDS = {
   status: () => import('../lib/commands/status.js').then(m => m.runStatus),
   attach: () => import('../lib/commands/attach.js').then(m => m.runAttach),
   stop: () => import('../lib/commands/stop.js').then(m => m.runStop),
+  delete: () => import('../lib/commands/delete.js').then(m => m.runDelete),
   'active-task': () => import('../lib/commands/active-task.js').then(m => m.runActiveTask),
 };
 
@@ -20,6 +21,7 @@ const COMMAND_DESCRIPTIONS = [
   { cmd: 'status', label: 'status — list running apps and their liveness' },
   { cmd: 'attach', label: 'attach — jump into a running app\'s window/REPL' },
   { cmd: 'stop', label: 'stop — stop running apps' },
+  { cmd: 'delete', label: 'delete — remove a task\'s working directory' },
 ];
 
 async function dispatch() {

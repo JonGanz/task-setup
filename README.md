@@ -1,6 +1,6 @@
 # task-setup
 
-CLI tool for bootstrapping a working directory per task and running the apps it needs. Clones the relevant repos on the right branch, wires up a shared `node_modules` cache via symlinks to avoid redundant installs, and can launch/manage the dev processes for a task in a dedicated tmux session.
+CLI tool for bootstrapping a working directory per task and running the apps it needs. Clones the relevant repos on the right branch, wires up a shared `node_modules` cache via hardlinks to avoid redundant installs, and can launch/manage the dev processes for a task in a dedicated tmux session.
 
 ## Installation
 
@@ -23,6 +23,7 @@ npm install && npm link
 | `task-setup status` | List running apps for the active task and their liveness |
 | `task-setup attach [repo[:profile]]` | Jump into a running app's tmux window/REPL |
 | `task-setup stop [repo[:profile]]` | Stop one running app, or everything for the active task |
+| `task-setup delete [task]` | Remove a task's working directory |
 
 Any argument left off a command that needs one (a task for `run`/`switch`, a repo for `attach`) prompts you to pick from what's available, rather than erroring.
 
@@ -83,12 +84,14 @@ If a patch fails to apply (e.g. it no longer matches the branch), `task-setup ne
 | Field | Required | Default | Description |
 |---|---|---|---|
 | `workDir` | No | `~/work/tasks` | Root directory where per-task subdirectories are created |
+| `winWorkDir` | Only if any repo has `windowsBacked: true` | — | Root directory on a Windows-visible filesystem (e.g. `/mnt/c/...`) for `windowsBacked` repo clones; see [WSL2 / Windows-backed repos](#wsl2--windows-backed-repos) |
 | `hotfixTagPattern` | No | `v[0-9]+\.[0-9]+\.[0-9]+` | Regex pattern for matching semver release tags |
 | `claudePromptTemplate` | No | *(none)* | Prompt template passed to `claude` on launch; `{ticket}` is replaced with the ticket number. If omitted, `claude` launches with no prompt argument |
 | `repos[].name` | Yes | — | Short name used as the cloned directory name |
 | `repos[].url` | Yes | — | Git remote URL |
 | `repos[].mainBranch` | No | `develop` | Branch to clone for normal (non-hotfix) tickets |
 | `repos[].hotfixTagPattern` | No | global pattern | Per-repo override for the hotfix tag pattern |
+| `repos[].windowsBacked` | No | `false` | Clone this repo onto `winWorkDir` and symlink it into the task dir; see [WSL2 / Windows-backed repos](#wsl2--windows-backed-repos) |
 | `repos[].run` | No | — | Enables `task-setup run` for this repo; see [Run config](#run-config-reposrun) |
 
 ### Run config (`repos[].run`)
@@ -167,7 +170,7 @@ task-setup new
 Cloning backend @ develop
 Cloning frontend @ develop
   → Cache miss [abc1234f56789012], running npm ci...
-  → node_modules symlinked
+  → node_modules linked
 
 Done. Working directory: ~/work/tasks/1234-add-payment-retries
 ```
@@ -204,13 +207,35 @@ For any cloned repo that has a `package-lock.json` at its root, the tool:
 1. SHA-256 hashes the lockfile (first 16 hex chars used as the key)
 2. Checks `~/.cache/task-setup/node_modules/<hash>/` for an existing install
 3. On a cache miss: copies `package.json` + `package-lock.json` into the cache directory and runs `npm ci` there
-4. Symlinks `<repo>/node_modules` → `<cache>/<hash>/node_modules`
+4. Hardlinks `<repo>/node_modules` from `<cache>/<hash>/node_modules` (via `cp -al`) rather than symlinking — this keeps `node_modules`'s resolved path inside the task folder, so dev servers with strict filesystem allow-lists (e.g. Vite's `server.fs.allow`) don't reject files served through it. The files still share inodes with the cache, so anything that rewrites a file in place under `node_modules` (patch-package, native module rebuilds, postinstall scripts) mutates that shared install for every other task using the same lockfile hash.
 
 Two repos with identical dependencies will share one install. The cache is safe to purge at any time:
 
 ```bash
 rm -rf ~/.cache/task-setup/node_modules/
 ```
+
+### WSL2 / Windows-backed repos
+
+If you develop inside WSL2 but have a repo (e.g. a Tauri app) with pieces that only run correctly on native Windows, a plain clone under `workDir` won't work well for it:
+
+- `cmd.exe`/`powershell.exe` launched from WSL2 only resolve their current directory to a real Windows path when it's actually on a `drvfs` mount (`/mnt/c/...`). A directory under `/home/...` is exposed to Windows as `\\wsl.localhost\...`, a UNC path — `cmd.exe` (and many npm `.cmd` shims that shell out to it) reject running with a UNC path as their current directory.
+- The [node_modules cache](#node_modules-cache) hardlinks (`cp -al`) can't cross filesystems, so a repo cloned onto `/mnt/c` can never hardlink from the cache on your Linux filesystem — installs must be real copies instead.
+
+Mark a repo `windowsBacked: true` and set `winWorkDir` to a directory on a Windows-visible mount:
+
+```json
+{
+  "winWorkDir": "/mnt/c/wsl-tasks",
+  "repos": [
+    { "name": "tauri-app", "url": "git@github.com:your-org/tauri-app.git", "windowsBacked": true }
+  ]
+}
+```
+
+For such a repo, `task-setup new` clones it directly into `<winWorkDir>/<task>-<repo>` and creates `<task-dir>/<repo>` as a symlink to it, so it still shows up in the task directory like any other repo — `cd`, tmux, git, and npm all follow the symlink transparently. `cd`-ing into it and running `powershell.exe` (or `cmd.exe`) now resolves to a real Windows path.
+
+The node_modules cache automatically falls back to a real recursive copy (`cp -a`) instead of hardlinking for these repos — installs are slower, use more disk, and won't share the cache with other tasks, since drvfs I/O is generally slower than the Linux filesystem too. `task-setup delete` cleans up both the symlink and the real checkout under `winWorkDir`.
 
 ## Opening a task's directory
 
@@ -289,6 +314,15 @@ task-setup stop backend:staging
 ```
 
 Stopping a window sends Ctrl-C to it first (SIGINT to the whole foreground process group — matters for `npm run dev` chains into `moleculer-runner`/`vite`) and waits up to 8 seconds. If the process ignores it, `task-setup` escalates to `SIGTERM`, then `SIGKILL`, then a final `tmux kill-window` as a backstop.
+
+### delete
+
+```bash
+task-setup delete            # prompts for which task directory to remove
+task-setup delete 1234-add-payment-retries
+```
+
+`git clone` leaves `.git/objects/pack/*.pack` and `*.idx` files read-only, which trips permission checks in most file managers and a plain `rm`. `delete` clears those bits (`chmod -R u+w`) before removing the task directory, so it always cleans up without prompts. If the task being deleted is the currently active one, you're asked to confirm stopping its running apps first.
 
 ### Where things live
 
