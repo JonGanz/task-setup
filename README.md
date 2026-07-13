@@ -1,6 +1,6 @@
 # task-setup
 
-CLI tool for bootstrapping a working directory per task and running the apps it needs. Clones the relevant repos on the right branch, wires up a shared `node_modules` cache via hardlinks to avoid redundant installs, and can launch/manage the dev processes for a task in a dedicated tmux session.
+CLI tool for bootstrapping a working directory per task and running the apps it needs. Clones the relevant repos on the right branch, wires up a shared `node_modules` cache via hardlinks to avoid redundant installs, and can launch/manage the dev processes for a task in a dedicated session — tmux or zellij, whichever you've configured (see [`multiplexer`](#config-fields)).
 
 ## Installation
 
@@ -18,11 +18,11 @@ npm install && npm link
 |---|---|
 | `task-setup new [description]` | Bootstrap a new task's working directory (clone repos, share `node_modules`) |
 | `task-setup edit [task]` | Add or remove repos from an existing task's working directory |
-| `task-setup run [task]` | Start apps for a task in the `task-run` tmux session |
+| `task-setup run [task]` | Start apps for a task in the `task-run` session |
 | `task-setup switch [task]` | Stop the active task's apps, then start another task's |
-| `task-setup open [task]` | `cd` into a task's directory in the current tmux window |
+| `task-setup open [task]` | `cd` into a task's directory in the current window |
 | `task-setup status` | List running apps for the active task and their liveness |
-| `task-setup attach [repo[:profile]]` | Jump into a running app's tmux window/REPL |
+| `task-setup attach [repo[:profile]]` | Jump into a running app's window/REPL |
 | `task-setup stop [repo[:profile]]` | Stop one running app, or everything for the active task |
 | `task-setup delete [task]` | Remove a task's working directory |
 
@@ -85,6 +85,7 @@ If a patch fails to apply (e.g. it no longer matches the branch), `task-setup ne
 | Field | Required | Default | Description |
 |---|---|---|---|
 | `workDir` | No | `~/work/tasks` | Root directory where per-task subdirectories are created |
+| `multiplexer` | No | `tmux` | Terminal multiplexer to use: `tmux` or `zellij`. See [tmux/zellij integration](#tmuxzellij-integration) |
 | `winWorkDir` | Only if any repo has `windowsBacked: true` | — | Root directory on a Windows-visible filesystem (e.g. `/mnt/c/...`) for `windowsBacked` repo clones; see [WSL2 / Windows-backed repos](#wsl2--windows-backed-repos) |
 | `hotfixTagPattern` | No | `v[0-9]+\.[0-9]+\.[0-9]+` | Regex pattern for matching semver release tags |
 | `claudePromptTemplate` | No | *(none)* | Prompt template passed to `claude` on launch; `{ticket}` is replaced with the ticket number. If omitted, `claude` launches with no prompt argument |
@@ -97,7 +98,7 @@ If a patch fails to apply (e.g. it no longer matches the branch), `task-setup ne
 
 ### Run config (`repos[].run`)
 
-A repo needs a `run` block before it shows up in `task-setup run`'s picker. Each entry under `commands` is a named "profile" you can start independently (and simultaneously — the same repo can run under two profiles at once, each in its own tmux window):
+A repo needs a `run` block before it shows up in `task-setup run`'s picker. Each entry under `commands` is a named "profile" you can start independently (and simultaneously — the same repo can run under two profiles at once, each in its own window):
 
 ```json
 {
@@ -182,24 +183,26 @@ For a hotfix, the tool resolves the highest semver tag matching `hotfixTagPatter
 
 ### Description, ticket, and window naming
 
-The task description (CLI argument or interactive prompt) and the ticket number are both optional, but at least one must be given — providing neither is an error. Whichever are present are kebab-cased/combined to form the base of both the working directory name and the tmux window name.
+The task description (CLI argument or interactive prompt) and the ticket number are both optional, but at least one must be given — providing neither is an error. Whichever are present are kebab-cased/combined to form the base of both the working directory name and the window name.
 
 The ticket is now always asked for, regardless of whether you launch Claude Code — it's used for window naming either way. When a ticket is given, its segment after the first hyphen is prepended to the window name — e.g. description "add payment retries" + ticket `PROJ-1234` → `1234-add-payment-retries`. Without a ticket, the window name is just the kebab-cased description; without a description, it's just the ticket's number segment.
 
-### tmux integration
+### tmux/zellij integration
 
-When `task-setup new` is run inside a tmux session (`$TMUX` is set), it will, after setup completes:
+Which multiplexer `task-setup` talks to is controlled by the `multiplexer` config field (`tmux`, the default, or `zellij`). When `task-setup new` is run inside a session of that multiplexer (`$TMUX` or `$ZELLIJ` is set, matching whichever is configured), it will, after setup completes:
 
-1. Rename the tmux window it was started in to the name described above.
+1. Rename the window/tab it was started in to the name described above.
 2. Send a `cd` into the new working directory to the pane it was started in, so your shell ends up there.
 
-Both happen regardless of whether you choose to launch Claude Code, and regardless of which tmux window you're currently looking at — cloning can take a while, so the tool remembers the pane it was launched from (via `$TMUX_PANE`) and targets that pane explicitly, rather than relying on tmux's default "current window" target, which would otherwise follow you to wherever you've navigated in the meantime. Outside tmux, this step is skipped with a one-line notice — there's no way for a child process to change its parent shell's directory without tmux's help.
+Both happen regardless of whether you choose to launch Claude Code, and regardless of which window you're currently looking at — cloning can take a while, so the tool remembers the pane it was launched from (via `$TMUX_PANE` or `$ZELLIJ_PANE_ID`) and targets that pane explicitly, rather than relying on the default "current"/focused-pane target, which would otherwise follow you to wherever you've navigated in the meantime. Outside a multiplexer session, this step is skipped with a one-line notice — there's no way for a child process to change its parent shell's directory without the multiplexer's help.
+
+One difference between the two backends: zellij's `rename-tab` action always renames whichever tab currently has focus (there's no per-pane targeting for it, unlike `write-chars`/`send-keys`), whereas tmux's `rename-window` can target the launch pane explicitly. In practice this only matters if you switch tabs in zellij while a clone is still running — the rename could land on the wrong tab. The `cd`/Claude-launch step is still correctly pinned to the launch pane either way.
 
 ### Claude Code launch
 
 You're asked whether to launch Claude Code before repos are cloned. If `claudePromptTemplate` is configured, `{ticket}` in the template is substituted with the ticket number (or removed, if left blank) and passed to `claude` as its initial prompt. If no template is configured, `claude` launches with no prompt at all. Either way, Claude always starts in plan mode (`--permission-mode plan`), so it won't make edits before you've reviewed and approved an approach.
 
-Inside tmux, the launch is chained onto the same `cd` sent to the pane, so Claude starts already in the working directory. Outside tmux, `claude` is launched directly with its working directory set to the new folder (your invoking shell's own directory is unaffected).
+Inside a multiplexer session, the launch is chained onto the same `cd` sent to the pane, so Claude starts already in the working directory. Otherwise, `claude` is launched directly with its working directory set to the new folder (your invoking shell's own directory is unaffected).
 
 ### node_modules cache
 
@@ -263,11 +266,11 @@ task-setup open
 task-setup open 1234-add-payment-retries
 ```
 
-Prompts with the list of task directories under `workDir` (unless a name is given directly), then renames the current tmux window to the task's directory name and `cd`s into it — same as the rename-and-`cd` `task-setup new` does after cloning, just without the cloning. It doesn't touch `task-run` state; it's purely for jumping back into a task you're already working on. Like `task-setup new`, it targets the pane the command was launched from (via `$TMUX_PANE`) rather than tmux's default "current" target, so it still lands correctly even if you've switched windows in the meantime. Outside tmux, there's no shell to rename/`cd` for, so it just prints the resolved path.
+Prompts with the list of task directories under `workDir` (unless a name is given directly), then renames the current window/tab to the task's directory name and `cd`s into it — same as the rename-and-`cd` `task-setup new` does after cloning, just without the cloning. It doesn't touch `task-run` state; it's purely for jumping back into a task you're already working on. Like `task-setup new`, it targets the pane the command was launched from (via `$TMUX_PANE`/`$ZELLIJ_PANE_ID`) rather than the default focused-pane target, so it still lands correctly even if you've switched windows in the meantime. Outside a multiplexer session, there's no shell to rename/`cd` for, so it just prints the resolved path.
 
 ## Running apps for a task
 
-Once a task's repos are cloned (via `task-setup new`), `task-setup run` starts whichever of them have a `run` config, each in its own window inside a dedicated tmux session named `task-run`. Only one task's apps run at a time — starting a different task's apps first gracefully stops whatever the currently active task has running.
+Once a task's repos are cloned (via `task-setup new`), `task-setup run` starts whichever of them have a `run` config, each in its own window inside a dedicated session named `task-run` (a tmux session or zellij session, depending on `multiplexer`). Only one task's apps run at a time — starting a different task's apps first gracefully stops whatever the currently active task has running.
 
 ### run
 
@@ -295,7 +298,7 @@ Stops every app for the currently active task (if any), then runs the same picke
 task-setup status
 ```
 
-Lists each running window for the active task with a live/dead check (cross-referencing tmux and the process's pid). Any window found dead — e.g. it crashed, or you killed it manually — is pruned from the tracked state automatically on the next call.
+Lists each running window for the active task with a live/dead check (cross-referencing the multiplexer's window list and the process's pid, where available — see the [pid caveat](#stop) below for zellij). Any window found dead — e.g. it crashed, or you killed it manually — is pruned from the tracked state automatically on the next call.
 
 ### attach
 
@@ -305,15 +308,17 @@ task-setup attach backend          # jumps straight in if only one profile is ru
 task-setup attach backend:staging  # disambiguates when multiple profiles are running
 ```
 
-If you're already inside tmux, this opens the window in a floating popup (`tmux display-popup`, requires tmux ≥ 3.2) rather than switching your client to the `task-run` session — your current session/window is never actually left. The popup is titled `<task> — <repo>:<profile>`, so it's clear which task's app you're looking at even with several tasks' worth of muscle memory in play. Detach from the popup the normal way (prefix-`d`) to close it and land back exactly where you were. Outside tmux, it attaches directly since there's no session to preserve.
+If you're already inside a multiplexer session, this opens the window in a floating popup/pane (tmux's `display-popup`, requires tmux ≥ 3.2; zellij's `new-pane --floating` running a nested `zellij attach`) rather than switching your client to the `task-run` session — your current session/window is never actually left. The popup is titled `<task> — <repo>:<profile>`, so it's clear which task's app you're looking at even with several tasks' worth of muscle memory in play. Detach from the popup the normal way (tmux: prefix-`d`; zellij: its detach binding) to close it and land back exactly where you were. Outside a multiplexer session, it attaches directly since there's no session to preserve — for zellij specifically, this also means it lands on whichever tab was last focused rather than the target window, since zellij's `attach` has no tmux-`select-window`-style "focus this tab first" option.
 
-Because this is a real tmux pane rather than a piped log, MoleculerJS's `--repl` works exactly as if you'd run the command yourself — arrow keys, tab-complete, and history all work. If the repo's profile isn't marked `repl: true` in config, you can still attach — you just get a note that it wasn't expected to be interactive.
+Because this is a real pane rather than a piped log, MoleculerJS's `--repl` works exactly as if you'd run the command yourself — arrow keys, tab-complete, and history all work. If the repo's profile isn't marked `repl: true` in config, you can still attach — you just get a note that it wasn't expected to be interactive.
 
-Note: the popup is itself a nested tmux client on the same server, so its prefix key is the same as your outer session's — a single prefix-`d` while the popup has focus detaches the popup (what you want), not your outer session.
+Note: the popup is itself a nested client on the same server/instance, so its detach key is the same as your outer session's — detaching while the popup has focus detaches the popup (what you want), not your outer session.
 
 #### Binding `attach` to a key
 
-To jump into a running app from anywhere without leaving whatever's in your current pane, bind a key in `~/.tmux.conf` that opens `task-setup attach` in its own popup:
+To jump into a running app from anywhere without leaving whatever's in your current pane, bind a key that opens `task-setup attach` in its own popup.
+
+tmux (`~/.tmux.conf`):
 
 ```tmux
 bind-key -n M-a display-popup -E -w 90% -h 90% -T "#(task-setup active-task) — attach" "TASK_SETUP_SKIP_POPUP=1 task-setup attach"
@@ -323,6 +328,18 @@ bind-key -n M-a display-popup -E -w 90% -h 90% -T "#(task-setup active-task) —
 
 A popup's title is fixed at creation and can't be changed once it's open, so the `-T` flag uses tmux's `#(shell command)` format substitution to run `task-setup active-task` — a small hidden command that just prints the active task's directory name — before the popup appears. It's what lets the outer popup show the active task even though the specific `<repo>:<profile>` isn't known yet (that's still resolved by `attach`'s own picker, running inside the popup).
 
+zellij (`~/.config/zellij/config.kdl`), roughly equivalent though without tmux's title-substitution trick:
+
+```kdl
+keybinds {
+    shared_except "locked" {
+        bind "Alt a" { Run "sh" "-c" "TASK_SETUP_SKIP_POPUP=1 task-setup attach" --floating --close-on-exit; }
+    }
+}
+```
+
+Double-check this against your installed zellij version's `Run` keyaction syntax (`zellij setup --check`/`zellij action --help`) before relying on it — it hasn't been verified against a live install.
+
 ### stop
 
 ```bash
@@ -331,7 +348,10 @@ task-setup stop backend         # stop just one repo (errors if the repo has mul
 task-setup stop backend:staging
 ```
 
-Stopping a window sends Ctrl-C to it first (SIGINT to the whole foreground process group — matters for `npm run dev` chains into `moleculer-runner`/`vite`) and waits up to 8 seconds. If the process ignores it, `task-setup` escalates to `SIGTERM`, then `SIGKILL`, then a final `tmux kill-window` as a backstop.
+Stopping a window sends Ctrl-C to it first (SIGINT to the whole foreground process group — matters for `npm run dev` chains into `moleculer-runner`/`vite`) and waits up to 8 seconds.
+
+- **tmux**: if the process ignores Ctrl-C, `task-setup` escalates to `SIGTERM`, then `SIGKILL` (sent directly to the pane's process, via `pane_pid`), then a final `tmux kill-window` as a backstop.
+- **zellij**: zellij's CLI doesn't expose an OS pid for a pane's process, so there's no `SIGTERM`/`SIGKILL` step available — an unresponsive process goes straight from the graceful Ctrl-C to a hard `zellij action close-tab-by-id`, which forcibly kills the pane. This is also why `getWindowPid`/pid tracking is always empty for zellij-run tasks; `status` and the dead-window prune fall back to trusting the window's existence alone in that case.
 
 ### delete
 
@@ -344,6 +364,6 @@ task-setup delete 1234-add-payment-retries
 
 ### Where things live
 
-- **tmux session**: `task-run`, one window per running app. A hidden `_placeholder` window keeps the session alive even when nothing else is running, so `task-setup run` can always reuse it.
-- **State**: `~/.config/task-setup/run-state.json` tracks the active task and its running windows (repo, profile, command, pid, log path). It's rebuilt/pruned automatically — you shouldn't need to touch it, but deleting it just forgets what's running without stopping anything.
-- **Logs**: each window's output is piped to `~/.cache/task-setup/logs/<task>/<repo>-<profile>.log` via `tmux pipe-pane`, so you can `tail -f` a service without attaching to its window.
+- **Session**: `task-run`, one window (tmux window / zellij tab) per running app. For tmux, a hidden `_placeholder` window keeps the session alive even when nothing else is running, so `task-setup run` can always reuse it.
+- **State**: `~/.config/task-setup/run-state.json` tracks the active task and its running windows (repo, profile, command, pid, log path). It's rebuilt/pruned automatically — you shouldn't need to touch it, but deleting it just forgets what's running without stopping anything. `pid` is always empty for zellij-run tasks (see [stop](#stop)).
+- **Logs**: each window's output ends up at `~/.cache/task-setup/logs/<task>/<repo>-<profile>.log`, so you can `tail -f` a service without attaching to its window. tmux streams this via `pipe-pane`; zellij has no pane-output-tap equivalent, so its backend instead wraps the spawned command itself in a `tee -a` redirect.
