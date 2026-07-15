@@ -238,6 +238,23 @@ For such a repo, `task-setup new` clones it directly into `<winWorkDir>/<task>-<
 
 The node_modules cache automatically falls back to a real recursive copy (`cp -a`) instead of hardlinking for these repos — installs are slower, use more disk, and won't share the cache with other tasks, since drvfs I/O is generally slower than the Linux filesystem too. `task-setup delete` cleans up both the symlink and the real checkout under `winWorkDir`.
 
+#### npm install on native Windows (Tauri apps)
+
+By default, `windowsBacked` repos still get their `npm ci` run on the WSL side (see above) — only where the checkout lives changes, not which platform's npm runs. That's a problem for a repo like a Tauri app: npm resolves platform-specific `optionalDependencies` (e.g. the Tauri CLI's native binary) based on the OS npm itself is running on, so a WSL-run install pulls in the Linux build even though the repo lives on the Windows filesystem — `npm run dev` then fails to find a Windows-native executable.
+
+Set `npmInstallOn: "windows"` on a `windowsBacked` repo to run its `npm ci` through `powershell.exe` (via WSL interop) instead:
+
+```json
+{
+  "name": "tauri-app",
+  "url": "git@github.com:your-org/tauri-app.git",
+  "windowsBacked": true,
+  "npmInstallOn": "windows"
+}
+```
+
+This uses its own cache, keyed the same way (by lockfile hash) but stored under `<winWorkDir>/.npm-cache/node_modules/<hash>` instead of `~/.cache/task-setup/node_modules/<hash>`, since a Windows-native install and a WSL-native install of the same lockfile produce different, non-interchangeable `node_modules`. Because both the cache and the repo checkout live under the same drvfs mount, linking is a real hardlink (`cp -al`), not a fallback copy.
+
 ## Opening a task's directory
 
 ```bash
